@@ -1,0 +1,161 @@
+#!/usr/bin/env ruby
+
+def usage
+return <<-EOS
+mpi2pmpi: Create PMPI function call from MPI function list
+Usage:
+      mpi2pmpi < mpi-function-list.txt
+
+Input:
+      int MPI_Function1(type arg1, type *arg2, type arg3[])
+      int MPI_Function2(void)
+      :
+
+Output:
+      int MPI_Function1(type arg1, type *arg2, type arg3[]) {
+          <Your code>
+          PMPI_Function1(arg1, arg2, arg3)
+      }
+      int MPI_Function2(void) {
+          <Your code>
+          PMPI_Function2()
+      }
+      :
+EOS
+end
+
+def main(argv)
+  if argv[0] == "-h" || argv[0] == "--help" then
+    puts usage
+    exit 0
+  end
+
+  # Print prefix code for C program
+  puts "#include <mpi.h>"
+  puts "#include <stdio.h>"
+  puts "#include <unistd.h>"
+  puts "#include <time.h>"
+  puts "#include <sys/times.h>"
+  puts
+  puts "FILE *log_file;"
+  puts
+  puts "void log_mpi_func(char *name, struct timespec start_r, struct timespec end_r, struct timespec start_c, struct timespec end_c) {"
+  puts "fprintf(log_file, \"%s, %ld.%09ld, %ld.%09ld, %ld.%09ld, %ld.%09ld\\n\", name, start_r.tv_sec, start_r.tv_nsec, end_r.tv_sec, end_r.tv_nsec, start_c.tv_sec, start_c.tv_nsec, end_c.tv_sec, end_c.tv_nsec);"
+  puts "}"
+  puts
+
+
+  while line = gets do
+    line = line.chomp
+
+    # Extract function name and args
+    # Ex: int MPI_Function1(type arg1, type *arg2) -> "int", "MPI_Function1", "type arg1, type *arg2"
+    md = line.match(/^(\S+)\s(\S+)\((.+)\)$/)
+
+    # Ingore if the line is not MPI function declaration
+    if md.nil? then
+      next
+    end
+
+    return_type = md[1]
+    function_name = md[2]
+    args = md[3]
+    pmpi_call = mpi_call_to_pmpi_call(function_name, args)
+
+    # Print function call code of each MPI function
+    if function_name == "MPI_Init" || function_name == "MPI_Init_thread" then
+      puts "#{line} {"
+      puts "    char fname[30];"
+      puts "    sprintf(fname, \"mpitrace.%d.log\", getpid());"
+      puts "    log_file = fopen(fname, \"w\");"
+      puts
+      puts "    struct timespec start_r, end_r;"
+      puts "    struct timespec start_c, end_c;"
+      puts
+      puts "    clock_gettime(CLOCK_REALTIME, &start_r);"
+      puts "    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_c);"
+      puts "    #{return_type} res = #{pmpi_call};"
+      puts "    clock_gettime(CLOCK_REALTIME, &end_r);"
+      puts "    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_c);"
+      puts
+      puts "    log_mpi_func(\"#{function_name}\", start_r, end_r, start_c, end_c);"
+      puts
+      puts "    return res;"
+      puts "}"
+      puts
+    elsif function_name == "MPI_Finalize" then
+      puts "#{line} {"
+      puts "    struct timespec start_r, end_r;"
+      puts "    struct timespec start_c, end_c;"
+      puts
+      puts "    clock_gettime(CLOCK_REALTIME, &start_r);"
+      puts "    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_c);"
+      puts "    #{return_type} res = #{pmpi_call};"
+      puts "    clock_gettime(CLOCK_REALTIME, &end_r);"
+      puts "    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_c);"
+      puts
+      puts "    log_mpi_func(\"#{function_name}\", start_r, end_r, start_c, end_c);"
+      puts "    fclose(log_file);"
+      puts
+      puts "    return res;"
+      puts "}"
+      puts
+    else
+      puts "#{line} {"
+      puts "    struct timespec start_r, end_r;"
+      puts "    struct timespec start_c, end_c;"
+      puts
+      puts "    clock_gettime(CLOCK_REALTIME, &start_r);"
+      puts "    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_c);"
+      puts "    #{return_type} res = #{pmpi_call};"
+      puts "    clock_gettime(CLOCK_REALTIME, &end_r);"
+      puts "    clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_c);"
+      puts
+      puts "    log_mpi_func(\"#{function_name}\", start_r, end_r, start_c, end_c);"
+      puts
+      puts "    return res;"
+      puts "}"
+      puts
+    end
+  end
+
+  # Print suffix code for C program
+  # puts ""
+end
+
+# Create PMPI_* function call from MPI_* function call
+# Ex: int MPI_Function1(type arg1, type *arg2, type arg3[]) -> PMPI_Function1(arg1, arg2, arg3)
+def mpi_call_to_pmpi_call(function_name, args)
+
+  # If this function has no args, call PMPI function with no args
+  if args == "void" then
+    return "P#{function_name}()"
+
+  # If this function has variadic arguments, ignore it
+  elsif args.include?("...") then
+    return ""
+
+  # If this function has normal args, call PMPI function with these args
+  else
+    # Extract arg names without arg type
+    # Ex: "type arg1, type *arg2", arg3[] -> "arg1", "arg2", "arg3"
+    args = args.split(',').map do |arg|
+      md = arg.match(/(\S+\s)+\**([^\s|\[|\]]+)(\[\])?/)
+      md[2]
+    end
+
+    res = ""
+    res << "P#{function_name}("
+    args.each_with_index do |arg, i|
+      if i == args.size - 1 then
+        res << "#{arg}"
+      else
+        res << "#{arg}, "
+      end
+    end
+    res << ")"
+    return res
+  end
+end
+
+main ARGV
