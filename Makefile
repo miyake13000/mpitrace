@@ -9,7 +9,7 @@ mpitrace.so: mpitrace.c
 	$(CC) $(CFLAGS) -fPIC -shared -o $@ $^
 
 mpitrace.c: mpi-function-list.txt
-	./henkan.rb < mpi-function-list.txt > mpitrace.c
+	./mpi2pmpi < mpi-function-list.txt > mpitrace.c
 
 clean:
 	rm -f *.o *.so
