@@ -1,0 +1,43 @@
+#!/usr/bin/env python
+
+import pandas as pd
+import sys
+
+# 第1引数がない場合は使い方を表示して終了
+if len(sys.argv) < 2:
+    print('Usage: log2stat [mpitrace log file]')
+    sys.exit(1)
+
+# CSVファイルの読み込み
+csv_file_path = sys.argv[1]
+df = pd.read_csv(csv_file_path, header=None, names=['FunctionName',
+                                                    'StartRealTime',
+                                                    'EndRealTime',
+                                                    'StartCpuTime',
+                                                    'EndCpuTime'])
+
+
+# 重複を削除して全関数名を取得
+function_names = df['FunctionName'].unique()
+
+# ヘッダを表示
+print("MPI function name, Number of calls, max time (ms), min time (ms), mean time (ms)")
+
+# 各関数ごとに統計情報を表示
+for i in range(len(function_names)):
+    # 関数名ごとにデータフレームを分割
+    df_function = df[df['FunctionName'] == function_names[i]]
+    df_function = df_function.reset_index(drop=True)
+
+    # 経過時間を計算
+    df_function['ElapsedRealTime'] = (df_function['EndRealTime'] - df_function['StartRealTime']) * 1000
+    df_function['ElapsedCpuTime'] = (df_function['EndCpuTime'] - df_function['StartCpuTime']) * 1000
+
+    # 統計情報を表示
+    # print("Function: {}".format(function_names[i]))
+    print("{}: {}".format(function_names[i], len(df_function)), end=', ')
+    print("{}".format(df_function['ElapsedRealTime'].max()), end=', ')
+    print("{}".format(df_function['ElapsedRealTime'].min()), end=', ')
+    print("{}".format(df_function['ElapsedRealTime'].mean()))
+    # print(df_function.describe())
+    # print("------------------------------------------------")
